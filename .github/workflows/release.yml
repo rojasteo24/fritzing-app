@@ -1,0 +1,84 @@
+name: Win64 Release
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  create_release:
+    name: Create GitHub Release
+    runs-on: windows-2019
+
+    steps:
+      - name: Install Extra PowerShell Modules
+        run: |
+          Install-Module -Name Pscx -Force -AllowClobber
+          Install-Module 7Zip4PowerShell -Force -Verbose
+
+      - name: Checkout main repo
+        uses: actions/checkout@v2
+        with:
+          path: fritzing-app
+
+      - name: libgit2 v0.28.5 cache
+        uses: actions/cache@v2
+        id: libgit2-cache
+        with:
+          path: libgit2
+          key: ${{ runner.os }}-libgit2-0_28_5
+
+      - name: Checkout libgit2 v0.28.5
+        uses: actions/checkout@v2
+        if: steps.libgit2-cache.outputs.cache-hit != 'true'
+        with:
+          repository: 'libgit2/libgit2'
+          ref: 'v0.28.5'
+          path: libgit2
+
+      - name: Build libgit2 v0.28.5
+        if: steps.libgit2-cache.outputs.cache-hit != 'true'
+        run: |
+          Invoke-BatchFile "%programfiles(x86)%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cd libgit2
+          mkdir build64
+          cd build64
+          cmake .. -G "Visual Studio 16 2019" -A x64
+          cmake --build . --config Release
+
+      - name: boost v1.74.0 cache
+        uses: actions/cache@v2
+        id: boost-cache
+        with:
+          path: boost_1_74_0
+          key: ${{ runner.os }}-boost-1_74_0
+
+      - name: Download boost_1_74_0.zip
+        if: steps.boost-cache.outputs.cache-hit != 'true'
+        run: |
+          Invoke-WebRequest -Uri https://dl.bintray.com/boostorg/release/1.74.0/source/boost_1_74_0.zip -OutFile boost_1_74_0.zip
+          CertUtil -hashfile boost_1_74_0.zip SHA256
+          Expand-7Zip -ArchiveFileName boost_1_74_0.zip -TargetPath .
+          rm boost_1_74_0.zip
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v2
+        with:
+            version: "5.15.2"
+            host: "windows"
+            target: "desktop"
+            arch: "win64_msvc2019_64"
+
+      - name: Invoke release_fritzing.bat
+        run: |
+          Invoke-BatchFile "%programfiles(x86)%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cd fritzing-app
+          .\tools\release_fritzing.bat ${{ github.sha }} 64 2019
+        env:
+          QTBIN: ${{ env.Qt5_DIR }}\bin
+
+      - name: Upload Artifact of release
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ github.sha }}.windows.64.zip
+          path: ./release64/fritzing-refs/heads/${{ github.sha }}.windows.64.zip
